@@ -85,13 +85,13 @@ function genpointings(timerange_s, dir, polangle;
         
         # The North for a vector v is just -dv/dθ, as θ is the
         # colatitude and moves along the meridian
-        (θ, φ) = Healpix.vec2ang(curvec...)
-        northdir = [cos(θ) * cos(φ); cos(θ) * sin(φ); sin(θ)]
+        (θ, ϕ) = Healpix.vec2ang(curvec...)
+        northdir = [-cos(θ) * cos(ϕ); -cos(θ) * sin(ϕ); sin(θ)]
         
-        cosψ = clamp(dot(northdir, curpol), -1, 1)
-        crosspr = northdir × curpol
-        sinψ = clamp(dot(crosspr, crosspr), -1, 1)
-        ψ[idx] = atan2(cosψ, sinψ)
+        cosψ = clamp(dot(northdir, poldir), -1, 1)
+        crosspr = northdir × poldir
+        sinψ = clamp(sqrt(dot(crosspr, crosspr)), -1, 1)
+        ψ[idx] = atan2(cosψ, sinψ) * sign(dot(crosspr, curvec))
 
         if usedirs
             dirs[idx, :] = [θ, φ]
