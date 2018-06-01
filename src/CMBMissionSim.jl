@@ -104,8 +104,8 @@ function genpointings(timerange_s, dir, polangle;
 end
 
 # These data have been taken from Planck 2015 I, Table 1 (10.1051/0004-6361/201527101)
-const SOLSYSDIR_ECL_θ = 1.76560508
-const SOLSYSDIR_ECL_φ = 2.97323038
+const SOLSYSDIR_ECL_θ = 1.7656051330336222
+const SOLSYSDIR_ECL_φ = 2.9958842149922833
 const SOLSYSSPEED_M_S = 370082.2332
 const SPEED_OF_LIGHT_M_S = 2.99792458e8
 const T_CMB = 2.72548
