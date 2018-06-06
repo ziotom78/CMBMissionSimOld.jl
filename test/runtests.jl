@@ -5,11 +5,11 @@ using Base.Test
 # Test case
 
 dirs, ψ = genpointings(0:3600:86400, [0, 0, 1], 0.0,
-                       spinsunang=0,
-                       borespinang=0,
-                       spinrpm=0,
-                       precrpm=0,
-                       hwprpm=0)
+                       spinsunang=0.0,
+                       borespinang=0.0,
+                       spinrpm=0.0,
+                       precrpm=0.0,
+                       hwprpm=0.0)
 
 # Check the colatitudes
 for idx in 1:size(dirs)[1]
@@ -28,11 +28,11 @@ end
 # Test case
 
 dirs, ψ = genpointings(0:0.1:120, [0, 0, 1], 0.0,
-                       spinsunang=0,
-                       borespinang=0,
-                       spinrpm=1,
-                       precrpm=0,
-                       hwprpm=1)
+                       spinsunang=0.0,
+                       borespinang=0.0,
+                       spinrpm=1.0,
+                       precrpm=0.0,
+                       hwprpm=1.0)
 
 @test maximum(ψ) ≈ π / 2
 @test minimum(ψ) ≈ -π / 2
@@ -43,8 +43,8 @@ dirs, ψ = genpointings(0:0.1:120, [0, 0, 1], 0.0,
 dirs = rad2deg.(genpointings(0:1:60, [0, 0, 1], 0.0,
                              borespinang=deg2rad(15),
                              spinsunang=deg2rad(0),
-                             spinrpm=1,
-                             precrpm=0,
+                             spinrpm=1.0,
+                             precrpm=0.0,
                              yearlyrpm=0.1)[1])
 
 # Colatitudes should depart no more than ±15° from the Ecliptic 
@@ -59,10 +59,10 @@ dirs = rad2deg.(genpointings(0:1:60, [0, 0, 1], 0.0,
 # Test case
 
 dirs = rad2deg.(genpointings(0:1:60, [0, 0, 1], 0.0,
-                             borespinang=0,
+                             borespinang=0.0,
                              spinsunang=deg2rad(15),
-                             spinrpm=0,
-                             precrpm=0,
+                             spinrpm=0.0,
+                             precrpm=0.0,
                              yearlyrpm=0.1)[1])
 for idx in 1:size(dirs, 1)
     @test dirs[idx, 1] ≈ 90 - 15
@@ -72,10 +72,10 @@ end
 # Test case
 
 dirs = rad2deg.(genpointings(0:1:60, [0, 0, 1], 0.0,
-                             borespinang=0,
+                             borespinang=0.0,
                              spinsunang=deg2rad(15),
-                             spinrpm=0,
-                             precrpm=1,
+                             spinrpm=0.0,
+                             precrpm=1.0,
                              yearlyrpm=0.1)[1])
 @test minimum(dirs[:, 1]) ≈ 90 - 15
 @test maximum(dirs[:, 1]) ≈ 90 + 15
