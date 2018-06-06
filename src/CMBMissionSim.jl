@@ -2,6 +2,7 @@ module CMBMissionSim
 
 import Healpix
 import Quaternions
+using StaticArrays
 
 export MINUTES_PER_DAY,
        DAYS_PER_YEAR,
@@ -33,47 +34,33 @@ period2rpm(p) = 60.0 / p
 const MINUTES_PER_DAY = 60 * 24
 const DAYS_PER_YEAR = 365.25
 
-doc"""
-    genpointings(timerange_s, dir, polangle; spinsunang=deg2rad(45.0), borespinang=deg2rad(50.0), spinrpm=0, precrpm=0, yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR), hwprpm=0, usedirs=true)
+function genpointings!(timerange_s, dir, polangle, dirs, ψ;
+    spinsunang=deg2rad(45.0),
+    borespinang=deg2rad(50.0),
+    spinrpm=0.0,
+    precrpm=0.0,
+    yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR),
+    hwprpm=0.0,
+    usedirs=true)
 
-Generate a set of pointing directions and angles for a given orientation
-of the boresight beam. Depending on the value of "usedirs", the following
-data will be returned:
-
-- if `usedirs` is true (the default), return the tuple `(dirs, ψ)`, where
-  `dirs` is a N×2 matrix containing the values of θ (first column) and ϕ
-  (second column)
-- if `usedirs` is false, the `dirs` element in the tuple `(dirs, ψ)` will
-  be a N×3 matrix containing vectors of length one.
-"""
-function genpointings(timerange_s, dir, polangle;
-                      spinsunang=deg2rad(45.0),
-                      borespinang=deg2rad(50.0),
-                      spinrpm=0,
-                      precrpm=0,
-                      yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR),
-                      hwprpm=0,
-                      usedirs=true)
-    
     ω_spin = rpm2angfreq(spinrpm)
     ω_prec = rpm2angfreq(precrpm)
     ω_year = rpm2angfreq(yearlyrpm)
     ω_hwp = rpm2angfreq(hwprpm)
     
-    dirs = Array{Float64}(length(timerange_s), usedirs ? 2 : 3)
-    ψ = Array{Float64}(length(timerange_s))
+    # This quaternion never changes
+    q1 = Quaternions.qrotation(Float64[0, 1, 0], borespinang)
 
-    for (idx, time_s) in enumerate(timerange_s)
+    @inbounds for (idx, time_s) in enumerate(timerange_s)
         curpolang = mod2pi(polangle + 4 * ω_hwp * time_s)
         # The polarization vector lies on the XY plane; if polangle=0 then
         # the vector points along the X direction at t=0.
-        poldir = [cos(curpolang), sin(curpolang), 0]
+        poldir = SVector(cos(curpolang), sin(curpolang), 0.0)
         
-        q1 = Quaternions.qrotation([0, 1, 0], borespinang)
-        q2 = Quaternions.qrotation([0, 0, 1], ω_spin * time_s)
-        q3 = Quaternions.qrotation([0, 1, 0], π / 2 - spinsunang)
-        q4 = Quaternions.qrotation([1, 0, 0], ω_prec * time_s)
-        q5 = Quaternions.qrotation([0, 0, 1], ω_year * time_s)
+        q2 = Quaternions.qrotation(Float64[0.0, 0.0, 1.0], ω_spin * time_s)
+        q3 = Quaternions.qrotation(Float64[0.0, 1.0, 0.0], π / 2 - spinsunang)
+        q4 = Quaternions.qrotation(Float64[1.0, 0.0, 0.0], ω_prec * time_s)
+        q5 = Quaternions.qrotation(Float64[0.0, 0.0, 1.0], ω_year * time_s)
         
         qtot = q5 * (q4 * (q3 * (q2 * q1)))
         rot = Quaternions.rotationmatrix(qtot)
@@ -85,7 +72,7 @@ function genpointings(timerange_s, dir, polangle;
         # The North for a vector v is just -dv/dθ, as θ is the
         # colatitude and moves along the meridian
         (θ, ϕ) = Healpix.vec2ang(curvec...)
-        northdir = [-cos(θ) * cos(ϕ); -cos(θ) * sin(ϕ); sin(θ)]
+        northdir = SVector(-cos(θ) * cos(ϕ), -cos(θ) * sin(ϕ), sin(θ))
         
         cosψ = clamp(dot(northdir, poldir), -1, 1)
         crosspr = northdir × poldir
@@ -101,6 +88,41 @@ function genpointings(timerange_s, dir, polangle;
     end
     
     (dirs, ψ)
+end
+
+doc"""
+    genpointings(timerange_s, dir, polangle; spinsunang=deg2rad(45.0), borespinang=deg2rad(50.0), spinrpm=0, precrpm=0, yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR), hwprpm=0, usedirs=true)
+
+Generate a set of pointing directions and angles for a given orientation
+of the boresight beam. Depending on the value of "usedirs", the following
+data will be returned:
+
+- if `usedirs` is true (the default), return the tuple `(dirs, ψ)`, where
+  `dirs` is a N×2 matrix containing the values of θ (first column) and ϕ
+  (second column)
+- if `usedirs` is false, the `dirs` element in the tuple `(dirs, ψ)` will
+  be a N×3 matrix containing vectors of length one.
+"""
+function genpointings(timerange_s, dir, polangle;
+    spinsunang=deg2rad(45.0),
+    borespinang=deg2rad(50.0),
+    spinrpm=0.0,
+    precrpm=0.0,
+    yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR),
+    hwprpm=0.0,
+    usedirs=true)
+    
+    dirs = Array{Float64}(length(timerange_s), usedirs ? 2 : 3)
+    ψ = Array{Float64}(length(timerange_s))
+
+    genpointings!(timerange_s, dir, polangle, dirs, ψ;
+                  spinsunang=spinsunang,
+                  borespinang=borespinang,
+                  spinrpm=spinrpm,
+                  precrpm=precrpm,
+                  yearlyrpm=yearlyrpm,
+                  hwprpm=hwprpm,
+                  usedirs=usedirs)
 end
 
 # These data have been taken from Planck 2015 I, Table 1 (10.1051/0004-6361/201527101)
