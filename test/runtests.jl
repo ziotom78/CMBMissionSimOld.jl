@@ -18,7 +18,7 @@ for idx in 1:size(dirs)[1]
 end
 
 # Check that the longitude increases as expected
-@test dirs[end, 2] * DAYS_PER_YEAR ≈ 2π
+@test dirs[end, 2] - dirs[1, 2] ≈ 2π / DAYS_PER_YEAR
 
 for idx in eachindex(ψ)
     @test ψ[idx] ≈ -π / 2
