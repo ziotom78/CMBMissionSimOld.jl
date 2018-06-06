@@ -77,11 +77,10 @@ function genpointings(timerange_s, dir, polangle;
         
         qtot = q5 * (q4 * (q3 * (q2 * q1)))
         rot = Quaternions.rotationmatrix(qtot)
-        
         # Direction in the sky of the beam main axis
         curvec = rot * dir
         # Direction in the sky of the beam polarization axis
-        curpol = rot * poldir
+        poldir = rot * poldir
         
         # The North for a vector v is just -dv/dθ, as θ is the
         # colatitude and moves along the meridian
@@ -91,10 +90,11 @@ function genpointings(timerange_s, dir, polangle;
         cosψ = clamp(dot(northdir, poldir), -1, 1)
         crosspr = northdir × poldir
         sinψ = clamp(sqrt(dot(crosspr, crosspr)), -1, 1)
-        ψ[idx] = atan2(cosψ, sinψ) * sign(dot(crosspr, curvec))
+        ψ[idx] = atan2(cosψ, sinψ)
 
         if usedirs
-            dirs[idx, :] = [θ, φ]
+            dirs[idx, 1] = θ
+            dirs[idx, 2] = ϕ
         else
             dirs[idx, :] = curvec
         end
