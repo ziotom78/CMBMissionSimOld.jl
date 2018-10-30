@@ -3,6 +3,7 @@ module CMBMissionSim
 import Healpix
 import Quaternions
 using StaticArrays
+using LinearAlgebra: dot, ×
 
 export MINUTES_PER_DAY,
        DAYS_PER_YEAR,
@@ -17,14 +18,14 @@ export MINUTES_PER_DAY,
        genpointings,
        dipoletemperature
 
-doc"""
+"""
     rpm2angfreq(v)
 
 Convert rotations per minute into angular frequency 2πν (in Hertz).
 """
 rpm2angfreq(v) = 2 * π * v / 60.0
 
-doc"""
+"""
     period2rpm(p)
 
 Convert a period (time span) in seconds into a number of rotations per minute
@@ -77,7 +78,7 @@ function genpointings!(timerange_s, dir, polangle, dirs, ψ;
         cosψ = clamp(dot(northdir, poldir), -1, 1)
         crosspr = northdir × poldir
         sinψ = clamp(sqrt(dot(crosspr, crosspr)), -1, 1)
-        ψ[idx] = atan2(cosψ, sinψ)
+        ψ[idx] = atan(cosψ, sinψ)
 
         if usedirs
             dirs[idx, 1] = θ
@@ -90,7 +91,7 @@ function genpointings!(timerange_s, dir, polangle, dirs, ψ;
     (dirs, ψ)
 end
 
-doc"""
+"""
     genpointings(timerange_s, dir, polangle; spinsunang=deg2rad(45.0), borespinang=deg2rad(50.0), spinrpm=0, precrpm=0, yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR), hwprpm=0, usedirs=true)
 
 Generate a set of pointing directions and angles for a given orientation
@@ -112,8 +113,8 @@ function genpointings(timerange_s, dir, polangle;
     hwprpm=0.0,
     usedirs=true)
     
-    dirs = Array{Float64}(length(timerange_s), usedirs ? 2 : 3)
-    ψ = Array{Float64}(length(timerange_s))
+    dirs = Array{Float64}(undef, length(timerange_s), usedirs ? 2 : 3)
+    ψ = Array{Float64}(undef, length(timerange_s))
 
     genpointings!(timerange_s, dir, polangle, dirs, ψ;
                   spinsunang=spinsunang,
@@ -136,7 +137,7 @@ const SOLSYS_SPEED_VEC_M_S = SOLSYSSPEED_M_S * [sin(SOLSYSDIR_ECL_θ) * cos(SOLS
                                                 sin(SOLSYSDIR_ECL_θ) * sin(SOLSYSDIR_ECL_φ),
                                                 cos(SOLSYSDIR_ECL_θ)]
 
-doc"""
+"""
     dipoletemperature(ecldir; solsys_speed_vec_m_s=SOLSYS_SPEED_VEC_M_S)
 
 Compute the temperature of the dipole along the direction "ecldir", which should

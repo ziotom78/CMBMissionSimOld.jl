@@ -1,5 +1,5 @@
 using CMBMissionSim
-using Base.Test
+using Test
 
 #######################################################################
 # Test case
