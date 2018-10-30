@@ -1,5 +1,7 @@
 module CMBMissionSim
 
+using LinearAlgebra
+
 import Healpix
 import Quaternions
 using StaticArrays
