@@ -22,6 +22,32 @@ export MINUTES_PER_DAY,
        PointingInfo,
        time2pointing
 
+# These functions are faster than Quaternions.qrotation2
+
+function qrotation_x(theta)
+    Quaternions.Quaternion(cos(theta / 2), sin(theta / 2), 0.0, 0.0, true)
+end
+
+function qrotation_y(theta)
+    Quaternions.Quaternion(cos(theta / 2), 0.0, sin(theta / 2), 0.0, true)
+end
+
+function qrotation_z(theta)
+    Quaternions.Quaternion(cos(theta / 2), 0.0, 0.0, sin(theta / 2), true)
+end
+
+"""
+    qrotation_x(theta)
+    qrotation_y(theta)
+    qrotation_z(theta)
+
+Return a `Quaternions.Quaternion` object representing a rotation
+around the ``e_x``, ``e_y``, or ``e_z`` axis by an angle `theta` (in
+radians).
+"""
+qrotation_x, qrotation_y, qrotation_z
+
+
 """
     rpm2angfreq(v)
 
@@ -65,8 +91,8 @@ struct PointingInfo
         rpm2angfreq(hwp_rpm),
         spinsunang_rad,
         borespinang_rad,
-        Quaternions.qrotation(Float64[0, 1, 0], borespinang_rad),
-        Quaternions.qrotation(Float64[0.0, 1.0, 0.0], π / 2 - spinsunang_rad)
+        qrotation_y(borespinang_rad),
+        qrotation_y(π / 2 - spinsunang_rad)
     )
 end
 
@@ -76,9 +102,9 @@ function time2pointing(pinfo::PointingInfo, time_s, dir, polangle)
     # the vector points along the X direction at t=0.
     poldir = SVector(cos(curpolang), sin(curpolang), 0.0)
     
-    q2 = Quaternions.qrotation(Float64[0.0, 0.0, 1.0], pinfo.ω_spin * time_s)
-    q4 = Quaternions.qrotation(Float64[1.0, 0.0, 0.0], pinfo.ω_prec * time_s)
-    q5 = Quaternions.qrotation(Float64[0.0, 0.0, 1.0], pinfo.ω_year * time_s)
+    q2 = qrotation_z(pinfo.ω_spin * time_s)
+    q4 = qrotation_x(pinfo.ω_prec * time_s)
+    q5 = qrotation_z(pinfo.ω_year * time_s)
     
     qtot = q5 * (q4 * (pinfo.q3 * (q2 * pinfo.q1)))
     rot = Quaternions.rotationmatrix(qtot)
@@ -100,23 +126,15 @@ function time2pointing(pinfo::PointingInfo, time_s, dir, polangle)
     (θ, ϕ, ψ, curvec...)
 end
 
-function genpointings(pinfo::PointingInfo, timerange_s, dir, polangle; usedirs=true)
-    dirs = Array{Float64}(undef, length(timerange_s), usedirs ? 2 : 3)
-    ψ = Array{Float64}(undef, length(timerange_s))
-
+function genpointings!(pinfo::PointingInfo, timerange_s, dir, polangle, dirs; usedirs=true)
     @inbounds for (idx, t) in enumerate(timerange_s)
-        curθ, curϕ, curψ, curx, cury, curz = time2pointing(pinfo, t, dir, polangle)
-
-        if usedirs
-            dirs[idx, 1] = curθ
-            dirs[idx, 2] = curϕ
-        else
-            dirs[idx, 1] = curx
-            dirs[idx, 2] = cury
-            dirs[idx, 3] = curz
-        end
-        ψ[idx] = curψ
+        dirs[idx, :] = collect(time2pointing(pinfo, t, dir, polangle))
     end
+end
+
+function genpointings(pinfo::PointingInfo, timerange_s, dir, polangle; usedirs=true)
+    dirs = Array{Float64}(undef, length(timerange_s), 6)
+    genpointings!(pinfo, timerange_s, dir, polangle, dirs, usedirs=usedirs)
 
     dirs
 end
@@ -136,8 +154,8 @@ function genpointings!(timerange_s, dir, polangle, dirs, ψ;
     ω_hwp = rpm2angfreq(hwprpm)
     
     # These quaternions never change
-    q1 = Quaternions.qrotation(Float64[0, 1, 0], borespinang)
-    q3 = Quaternions.qrotation(Float64[0.0, 1.0, 0.0], π / 2 - spinsunang)
+    q1 = qrotation_y(borespinang)
+    q3 = qrotation_y(π / 2 - spinsunang)
 
     @inbounds for (idx, time_s) in enumerate(timerange_s)
         curpolang = mod2pi(polangle + 4 * ω_hwp * time_s)
@@ -145,9 +163,9 @@ function genpointings!(timerange_s, dir, polangle, dirs, ψ;
         # the vector points along the X direction at t=0.
         poldir = SVector(cos(curpolang), sin(curpolang), 0.0)
         
-        q2 = Quaternions.qrotation(Float64[0.0, 0.0, 1.0], ω_spin * time_s)
-        q4 = Quaternions.qrotation(Float64[1.0, 0.0, 0.0], ω_prec * time_s)
-        q5 = Quaternions.qrotation(Float64[0.0, 0.0, 1.0], ω_year * time_s)
+        q2 = qrotation_z(ω_spin * time_s)
+        q4 = qrotation_y(ω_prec * time_s)
+        q5 = qrotation_z(ω_year * time_s)
         
         qtot = q5 * (q4 * (q3 * (q2 * q1)))
         rot = Quaternions.rotationmatrix(qtot)
