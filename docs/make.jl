@@ -11,6 +11,7 @@ makedocs(modules = [CMBMissionSim],
     sitename = "CMBMissionSim.jl",
     pages = [
         "Introduction" => "index.md",
+        "Pointing generation" => "genpointings.md"
     ])
 
 deploydocs(repo = "github.com/lspestrip/CMBMissionSim.jl.git",

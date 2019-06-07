@@ -11,7 +11,6 @@ export MINUTES_PER_DAY,
        angfreq2rpm,
        period2rpm,
        rpm2period,
-       genpointings,
        ScanningStrategy,
        update_scanning_strategy,
        load_scanning_strategy,
@@ -67,23 +66,6 @@ set of pointing directions. It contains the following fields:
 
 Each field has its measure unit appended to the name. For instance, field
 `spinsunang_rad` must be expressed in radians.
-
-You can build a `ScanningStrategy` object using the constructor, which takes the
-following syntax:
-
-    ScanningStrategy(;
-        spin_rpm = 0,
-        prec_rpm = 0,
-        yearly_rpm = 1  / (MINUTES_PER_DAY * DAYS_PER_YEAR),
-        hwp_rpm = 0,
-        spinsunang_rad = deg2rad(45.0),
-        borespinang_rad = deg2rad(50.0),
-    )
-
-Note that the constructor only takes keywords, and that the measurement units used for
-them are different from the ones used in the fields in `ScanningStrategy`. Units in the
-constructors have been chosen in order to be easy to use, while units in `ScanningStrategy`
-allow to make computations more efficient.
 
 """
 struct ScanningStrategy
@@ -191,16 +173,25 @@ function to_dict(sstr::ScanningStrategy)
         "borespinang_rad" => sstr.borespinang_rad))
 end
 
+function save(io::IO, sstr::ScanningStrategy)
+    print(io, JSON.json(to_dict(sstr), 4))
+end
+
+function save(filename::AbstractString, sstr::ScanningStrategy)
+    open(filename, "w") do outf
+        save(outf, sstr)
+    end
+end
+
 @doc raw"""
     save(io::IO, sstr::ScanningStrategy)
+    save(filename::AbstractString, sstr::ScanningStrategy)
 
 Write a definition of the scanning strategy in a self-contained JSON file.
 You can reload this definition using one of the constructors of
 [`ScanningStrategy`](@ref).
 """
-function save(io::IO, sstr::ScanningStrategy)
-    print(io, JSON.json(to_dict(sstr), 4))
-end
+save
 
 ################################################################################
 
