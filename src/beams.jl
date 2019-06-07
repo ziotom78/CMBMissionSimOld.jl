@@ -73,3 +73,58 @@ beam_map = gaussian_beam(1024, 2.5 |> fwhm2std)
 See also `gaussian_beam!`.
 """
 gaussian_beam
+
+struct BeamMoments
+    S::Array{Float32,1}
+    M::Array{Float32,2}
+end
+
+@doc raw"""
+
+    beam_m(beam_map, l, m, n)
+
+Calculate the moment `(l, m, n)` of the beam in the Healpix map `beam_map`. Beam
+moments are defined in Appendix A of the paper "Planck 2013 results. LFI
+calibration" (Planck collaboration, A&A, 2013),
+https://dx.doi.org/10.1051/0004-6361/201321527.
+
+This function does not take into account the factor `N` (normalization of the beam).
+You can compute it using `beam_m(beam_map, 0, 0, 0)`.
+
+"""
+function beam_m(beam_map, l::Integer, m::Integer, n::Integer)
+    result = 0.0
+    for idx in 1:length(beam_map)
+        θ, ϕ = Healpix.pix2ang(beam_map, idx)
+
+        # We could have used `Healpix.ang2vec`, but we need the value
+        # of sinθ in order to calculate dΩ = sinθ⋅dθ⋅dϕ
+        sinθ, cosθ = sincos(θ)
+        sinϕ, cosϕ = sincos(ϕ)
+        
+        x = sinθ * cosϕ
+        y = sinθ * sinϕ
+        z = cosθ
+        
+        result += x^l * y^m * z^n * sinθ * beam_map[idx]
+    end
+    result
+end
+
+function beam_moments(beam_map)
+    N = beam_m(beam_map, 0, 0, 0)
+
+    S = [
+        beam_m(beam_map, 1, 0, 0) / N,
+        beam_m(beam_map, 0, 1, 0) / N,
+        beam_m(beam_map, 0, 0, 1) / N,
+    ]
+
+    M = [
+        [(beam_m(beam_map, 2, 0, 0) / N)  (beam_m(beam_map, 1, 1, 0) / N)  (beam_m(beam_map, 1, 0, 1) / N)];
+        [(beam_m(beam_map, 1, 1, 0) / N)  (beam_m(beam_map, 0, 2, 0) / N)  (beam_m(beam_map, 0, 1, 1) / N)];
+        [(beam_m(beam_map, 1, 0, 1) / N)  (beam_m(beam_map, 0, 1, 1) / N)  (beam_m(beam_map, 0, 0, 2) / N)];
+    ]
+
+    BeamMoments(S, M)
+end

@@ -2,6 +2,18 @@ import CMBMissionSim
 const CMBSim = CMBMissionSim
 using Test
 
-include("test_genpointings.jl")
-include("test_dipole.jl")
-include("test_beams.jl")
+@testset "Quaternions" begin
+    include("test_quaternions.jl")
+end
+
+@testset "Pointing generation" begin
+    include("test_genpointings.jl")
+end
+
+@testset "Dipole analysis" begin
+    include("test_dipole.jl")
+end
+
+@testset "Beam functions" begin
+    include("test_beams.jl")
+end
