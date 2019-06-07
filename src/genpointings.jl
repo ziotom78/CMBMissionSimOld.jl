@@ -1,107 +1,249 @@
+import Printf
+import JSON
 import Healpix
 import Quaternions
 import LinearAlgebra: dot, ×
+import Base: show
 
 export MINUTES_PER_DAY,
        DAYS_PER_YEAR,
        rpm2angfreq,
+       angfreq2rpm,
        period2rpm,
+       rpm2period,
        genpointings,
-       PointingInfo,
-       time2pointing
+       ScanningStrategy,
+       update_scanning_strategy,
+       load_scanning_strategy,
+       to_dict,
+       save,
+       time2pointing,
+       time2pointing!,
+       genpointings,
+       genpointings!
 
-# These functions are faster than Quaternions.qrotation2
+################################################################################
 
-function qrotation_x(theta)
-    Quaternions.Quaternion(cos(theta / 2), sin(theta / 2), 0.0, 0.0, true)
-end
+rpm2angfreq(rpm) = 2π * rpm / 60
+angfreq2rpm(ω) = ω / 2π * 60
 
-function qrotation_y(theta)
-    Quaternions.Quaternion(cos(theta / 2), 0.0, sin(theta / 2), 0.0, true)
-end
+@doc raw"""
+    rpm2angfreq(rpm)
+    angfreq2rpm(ω)
 
-function qrotation_z(theta)
-    Quaternions.Quaternion(cos(theta / 2), 0.0, 0.0, sin(theta / 2), true)
-end
-
+Convert rotations per minute into angular frequency 2πν (in Hertz), and vice
+versa.
 """
-    qrotation_x(theta)
-    qrotation_y(theta)
-    qrotation_z(theta)
+rpm2angfreq, angfreq2rpm
 
-Return a `Quaternions.Quaternion` object representing a rotation
-around the ``e_x``, ``e_y``, or ``e_z`` axis by an angle `theta` (in
-radians).
-"""
-qrotation_x, qrotation_y, qrotation_z
-
-
-"""
-    rpm2angfreq(v)
-
-Convert rotations per minute into angular frequency 2πν (in Hertz).
-"""
-rpm2angfreq(v) = 2π * v / 60
-
-"""
-    period2rpm(p)
-
-Convert a period (time span) in seconds into a number of rotations per minute
-"""
 period2rpm(p) = 60 / p
+rpm2period(rpm) = 60 / rpm
+
+@doc raw"""
+    period2rpm(p)
+    rpm2perriod(rpm)
+
+Convert a period (time span) in seconds into a number of rotations per minute,
+and vice versa.
+"""
+period2rpm, rpm2period
+
+################################################################################
 
 const MINUTES_PER_DAY = 60 * 24
 const DAYS_PER_YEAR = 365.25
 
-struct PointingInfo
-    ω_spin::Float64
-    ω_prec::Float64
-    ω_year::Float64
-    ω_hwp::Float64
-    spinsunang::Float64
-    borespinang::Float64
-    # First quaternion used in the rotation
-    q1::Quaternions.Quaternion
-    # Third quaternion used in the rotation
-    q3::Quaternions.Quaternion
-    
-    PointingInfo(spin_rpm = 0,
+@doc raw"""
+The structure `ScanningStrategy` encodes the information needed to build a
+set of pointing directions. It contains the following fields:
+
+- `omega_spin_hz`: angular speed of the rotation around the spin axis (equal to 2πν)
+- `omega_prec_hz`: angular speed of the rotation around the precession axis (equal to 2πν)
+- `omega_year_hz`: angular speed of the rotation around the Elliptic axis (equal to 2πν)
+- `omega_hwp_hz`: angular speed of the rotation of the half-wave plate (equal to 2πν)
+- `spinsunang_rad`: angle between the spin axis and the Sun-Earth direction
+- `borespinang_rad`: angle between the boresight direction and the spin axis
+- `q1`, `q3`: quaternions used to generate the pointings
+
+Each field has its measure unit appended to the name. For instance, field
+`spinsunang_rad` must be expressed in radians.
+
+You can build a `ScanningStrategy` object using the constructor, which takes the
+following syntax:
+
+    ScanningStrategy(;
+        spin_rpm = 0,
         prec_rpm = 0,
         yearly_rpm = 1  / (MINUTES_PER_DAY * DAYS_PER_YEAR),
         hwp_rpm = 0,
         spinsunang_rad = deg2rad(45.0),
         borespinang_rad = deg2rad(50.0),
-    ) = new(rpm2angfreq(spin_rpm),
+    )
+
+Note that the constructor only takes keywords, and that the measurement units used for
+them are different from the ones used in the fields in `ScanningStrategy`. Units in the
+constructors have been chosen in order to be easy to use, while units in `ScanningStrategy`
+allow to make computations more efficient.
+
+"""
+struct ScanningStrategy
+    omega_spin_hz::Float64
+    omega_prec_hz::Float64
+    omega_year_hz::Float64
+    omega_hwp_hz::Float64
+    spinsunang_rad::Float64
+    borespinang_rad::Float64
+    # First quaternion used in the rotation
+    q1::Quaternion
+    # Third quaternion used in the rotation
+    q3::Quaternion
+    
+    ScanningStrategy(; spin_rpm = 0,
+        prec_rpm = 0,
+        yearly_rpm = 1  / (MINUTES_PER_DAY * DAYS_PER_YEAR),
+        hwp_rpm = 0,
+        spinsunang_rad = deg2rad(45.0),
+        borespinang_rad = deg2rad(50.0),) = new(rpm2angfreq(spin_rpm),
         rpm2angfreq(prec_rpm),
         rpm2angfreq(yearly_rpm),
         rpm2angfreq(hwp_rpm),
         spinsunang_rad,
         borespinang_rad,
-        qrotation_y(borespinang_rad),
-        qrotation_y(π / 2 - spinsunang_rad))
+        compute_q1(borespinang_rad),
+        compute_q3(spinsunang_rad))
+
+    ScanningStrategy(io::IO) = load_scanning_strategy(io)
+    ScanningStrategy(filename::AbstractString) = load_scanning_strategy(filename)
 end
 
-function time2pointing!(pinfo::PointingInfo, time_s, dir, polangle, resultvec)
-    curpolang = mod2pi(polangle + 4 * pinfo.ω_hwp * time_s)
-    # The polarization vector lies on the XY plane; if polangle=0 then
+compute_q1(borespinang_rad) = qrotation_y(borespinang_rad)
+compute_q3(spinsunang_rad) = qrotation_y(π / 2 - spinsunang_rad)
+
+@doc raw"""
+    update_scanning_strategy(sstr::ScanningStrategy)
+
+Update the internal fields of a `ScanningStrategy` object. If you change any of the
+fields in a `ScanningStrategy` object after it has been created using the constructors,
+call this function
+before using one of the functions `time2pointing`, `time2pointing!`, `genpointings`,
+and `genpointings!`, as they rely on a number of internal parameters that need to be
+updated.
+
+```julia
+sstr = ScanningStrategy()
+# ... use sstr ...
+
+sstr.borespinang_rad *= 0.5
+update_scanning_strategy(sstr)
+```
+
+"""
+function update_scanning_strategy(sstr::ScanningStrategy)
+    sstr.q1 = compute_q1(sstr.borespinang_rad)
+    sstr.q3 = compute_q3(sstr.spinsunang_rad)
+end
+
+################################################################################
+
+function load_scanning_strategy(io::IO)
+    data = JSON.Parser.parse(io)
+
+    sstr_data = data["scanning_strategy"]
+
+    ScanningStrategy(spin_rpm = sstr_data["spin_rpm"],
+        prec_rpm = sstr_data["prec_rpm"],
+        yearly_rpm = sstr_data["yearly_rpm"],
+        hwp_rpm = sstr_data["hwp_rpm"],
+        spinsunang_rad = sstr_data["spinsunang_rad"],
+        borespinang_rad = sstr_data["borespinang_rad"])
+end
+
+function load_scanning_strategy(filename::AbstractString)
+    open(filename) do inpf
+        load_scanning_strategy(inpf)
+    end
+end
+
+@doc raw"""
+    load_scanning_strategy(io::IO) -> ScanningStrategy
+    load_scanning_strategy(filename::AbstractString) -> ScanningStrategy
+
+Create a `ScanningStrategy` object from the definition found in the JSON file
+`io`, or from the JSON file with path `filename`. See also
+[`load_scanning_strategy`](@ref).
+"""
+load_scanning_strategy
+
+################################################################################
+
+@doc raw"""
+    to_dict(sstr::ScanningStrategy) -> Dict{String, Any}
+
+Convert a scanning strategy into a dictionary suitable to be serialized using
+JSON or any other structured format. See also [`save`](@ref).
+"""
+function to_dict(sstr::ScanningStrategy)
+    Dict("scanning_strategy" => Dict("spin_rpm" => angfreq2rpm(sstr.omega_spin_hz),
+        "prec_rpm" => angfreq2rpm(sstr.omega_prec_hz),
+        "yearly_rpm" => angfreq2rpm(sstr.omega_year_hz),
+        "hwp_rpm" => angfreq2rpm(sstr.omega_hwp_hz),
+        "spinsunang_rad" => sstr.spinsunang_rad,
+        "borespinang_rad" => sstr.borespinang_rad))
+end
+
+@doc raw"""
+    save(io::IO, sstr::ScanningStrategy)
+
+Write a definition of the scanning strategy in a self-contained JSON file.
+You can reload this definition using one of the constructors of
+[`ScanningStrategy`](@ref).
+"""
+function save(io::IO, sstr::ScanningStrategy)
+    print(io, JSON.json(to_dict(sstr), 4))
+end
+
+################################################################################
+
+function show(io::IO, sstr::ScanningStrategy)
+    Printf.@printf(io, """Scanning strategy:
+    Spin angular velocity.................................... %g rot/s
+    Precession angular velocity.............................. %g rot/s
+    Yearly angular velocity around the Sun................... %g rot/s
+    Half-wave plate angular velocity......................... %g rot/s
+    Angle between the spin axis and the Sun-Earth direction.. %f°
+    Angle between the boresight direction and the spin axis.. %f°
+""",
+        sstr.omega_spin_hz,
+        sstr.omega_prec_hz,
+        sstr.omega_year_hz,
+        sstr.omega_hwp_hz,
+        rad2deg(sstr.spinsunang_rad),
+        rad2deg(sstr.borespinang_rad))
+end
+
+################################################################################
+
+function time2pointing!(sstr::ScanningStrategy, time_s, beam_dir, polangle_rad, resultvec)
+    curpolang = mod2pi(polangle_rad + 4 * sstr.omega_hwp_hz * time_s)
+    # The polarization vector lies on the XY plane; if polangle_rad=0 then
     # the vector points along the X direction at t=0.
-    poldir = SVector(cos(curpolang), sin(curpolang), 0.0)
+    poldir = StaticArrays.SVector(cos(curpolang), sin(curpolang), 0.0)
     
-    q2 = qrotation_z(pinfo.ω_spin * time_s)
-    q4 = qrotation_x(pinfo.ω_prec * time_s)
-    q5 = qrotation_z(pinfo.ω_year * time_s)
+    q2 = qrotation_z(sstr.omega_spin_hz * time_s)
+    q4 = qrotation_x(sstr.omega_prec_hz * time_s)
+    q5 = qrotation_z(sstr.omega_year_hz * time_s)
     
-    qtot = q5 * (q4 * (pinfo.q3 * (q2 * pinfo.q1)))
-    rot = Quaternions.rotationmatrix(qtot)
+    qtot = q5 * (q4 * (sstr.q3 * (q2 * sstr.q1)))
+    rot = rotationmatrix_normalized(qtot)
     # Direction in the sky of the beam main axis
-    resultvec[4:6] = rot * dir
+    resultvec[4:6] = rot * beam_dir
     # Direction in the sky of the beam polarization axis
     poldir = rot * poldir
     
     # The North for a vector v is just -dv/dθ, as θ is the
     # colatitude and moves along the meridian
     (θ, ϕ) = Healpix.vec2ang(resultvec[4:6]...)
-    northdir = SVector(-cos(θ) * cos(ϕ), -cos(θ) * sin(ϕ), sin(θ))
+    northdir = StaticArrays.SVector(-cos(θ) * cos(ϕ), -cos(θ) * sin(ϕ), sin(θ))
     
     cosψ = clamp(dot(northdir, poldir), -1, 1)
     crosspr = northdir × poldir
@@ -111,105 +253,83 @@ function time2pointing!(pinfo::PointingInfo, time_s, dir, polangle, resultvec)
     resultvec[1], resultvec[2] = θ, ϕ
 end
 
-function time2pointing(pinfo::PointingInfo, time_s, dir, polangle)
+function time2pointing(sstr::ScanningStrategy, time_s, beam_dir, polangle_rad)
     resultvec = Float64[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    time2pointing!(pinfo, time_s, dir, polangle, resultvec)
+    time2pointing!(sstr, time_s, beam_dir, polangle_rad, resultvec)
     resultvec
 end
 
-function genpointings!(pinfo::PointingInfo, timerange_s, dir, polangle, dirs)
-    @assert size(dirs)[1] == length(timerange_s)
+@doc raw"""
+    time2pointing!(sstr::ScanningStrategy, time_s, beam_dir, polangle_rad, resultvec)
+    time2pointing(sstr::ScanningStrategy, time_s, beam_dir, polangle_rad)
 
-    @inbounds for (idx, t) in enumerate(timerange_s)
-        time2pointing!(pinfo, t, dir, polangle, view(dirs, idx, :))
-    end
-end
+Calculate the pointing direction of a beam along the direction `beam_dir`, with
+a detector sensitive to the polarization along the angle `polangle_rad`. The
+result is saved in `resultvec` for `time2pointing!`, and it is the return value
+of `time2pointing`; it is a 6-element array containing the following fields:
 
-function genpointings(pinfo::PointingInfo, timerange_s, dir, polangle)
-    dirs = Array{Float64}(undef, length(timerange_s), 6)
-    genpointings!(pinfo, timerange_s, dir, polangle, dirs)
+1. The colatitude (in radians) of the point in the sky
+2. The longitude (in radians) of the point in the sky
+3. The polarization angle, in the reference frame of the sky
+4. The X component of the normalized pointing vector
+5. The Y component
+6. The Z component
 
-    dirs
-end
+Fields #4, #5, #6 are redundant, as they can be derived from the colatitude
+(field #1) and longitude (field #2). They are returned as the code already
+computes them.
 
-function genpointings!(timerange_s, dir, polangle, dirs;
-    spinsunang = deg2rad(45.0),
-    borespinang = deg2rad(50.0),
-    spinrpm = 0.0,
-    precrpm = 0.0,
-    yearlyrpm = 1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR),
-    hwprpm = 0.0)
-
-    ω_spin = rpm2angfreq(spinrpm)
-    ω_prec = rpm2angfreq(precrpm)
-    ω_year = rpm2angfreq(yearlyrpm)
-    ω_hwp = rpm2angfreq(hwprpm)
-    
-    # These quaternions never change
-    q1 = qrotation_y(borespinang)
-    q3 = qrotation_y(π / 2 - spinsunang)
-
-    @inbounds for (idx, time_s) in enumerate(timerange_s)
-        curpolang = mod2pi(polangle + 4 * ω_hwp * time_s)
-        # The polarization vector lies on the XY plane; if polangle=0 then
-        # the vector points along the X direction at t=0.
-        poldir = StaticArrays.SVector(cos(curpolang), sin(curpolang), 0.0)
-
-        q2 = qrotation_z(ω_spin * time_s)
-        q4 = qrotation_y(ω_prec * time_s)
-        q5 = qrotation_z(ω_year * time_s)
-        
-        qtot = q5 * (q4 * (q3 * (q2 * q1)))
-        rot = Quaternions.rotationmatrix(qtot)
-        # Direction in the sky of the beam main axis
-        dirs[idx, 4:6] = rot * dir
-        # Direction in the sky of the beam polarization axis
-        poldir = rot * poldir
-        
-        # The North for a vector v is just -dv/dθ, as θ is the
-        # colatitude and moves along the meridian
-        (θ, ϕ) = Healpix.vec2ang(dirs[idx, 4:6]...)
-        dirs[idx, 1] = θ
-        dirs[idx, 2] = ϕ
-
-        northdir = StaticArrays.SVector(-cos(θ) * cos(ϕ), -cos(θ) * sin(ϕ), sin(θ))
-        
-        cosψ = clamp(dot(northdir, poldir), -1, 1)
-        crosspr = northdir × poldir
-        sinψ = clamp(sqrt(dot(crosspr, crosspr)), -1, 1)
-        dirs[idx, 3] = atan(cosψ, sinψ)
-    end
-end
+The vector `beam_dir` and the angle `polangle_rad` must be expressed in the
+reference system of the focal plane. If `polangle_rad == 0`, the detector
+measures polarization along the x axis of the focal plane. The normal direction
+to the focal plane is along the z axis; thus, the boresight director is such
+that `beam_dir = [0., 0., 1.]`.
 
 """
-    genpointings(timerange_s, dir, polangle; spinsunang=deg2rad(45.0), borespinang=deg2rad(50.0), spinrpm=0, precrpm=0, yearlyrpm=1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR), hwprpm=0)
+time2pointing!, time2pointing
+
+################################################################################
+
+function genpointings!(sstr::ScanningStrategy, timerange_s, beam_dir, polangle_rad, result)
+    @assert size(result)[1] == length(timerange_s)
+
+    @inbounds for (idx, t) in enumerate(timerange_s)
+        time2pointing!(sstr, t, beam_dir, polangle_rad, view(result, idx, :))
+    end
+end
+
+function genpointings(sstr::ScanningStrategy, timerange_s, beam_dir, polangle_rad)
+    result = Array{Float64}(undef, length(timerange_s), 6)
+    genpointings!(sstr, timerange_s, beam_dir, polangle_rad, result)
+
+    result
+end
+
+@doc raw"""
+    genpointings!(sstr::ScanningStrategy, timerange_s, beam_dir, polangle_rad, result)
+    genpointings(sstr::ScanningStrategy, timerange_s, beam_dir, polangle_rad)
 
 Generate a set of pointing directions and angles for a given orientation
-of the boresight beam. The function returns a N×5 matrix containing the following fields:
+`beam_dir` (a 3-element vector) of the boresight beam, assuming the scanning
+strategy in `sstr`. The pointing directions are calculated over all the elements
+of the list `timerange_s`.
+
+The two functions only differ in the way the result is returned to the caller.
+Function `genpointings` returns a N×6 matrix containing the following fields:
 
 1. The colatitude (in radians)
 2. The longitude (in radians)
-3. The X component of the one-length pointing vector
-4. The Y component
-5. The Z component
+3. The polarization angle (in radians)
+4. The X component of the one-length pointing vector
+5. The Y component
+6. The Z component
+
+Function `genpointings!` works like `genpointings`, but it accept a
+pre-allocated matrix as input (the `result` parameter) and will save the result
+in it. The matrix must have two dimensions with size `(N, 6)` at least.
+
+Both functions are simple iterators wrapping [`time2pointing!`](@ref) and
+[`time2pointing`](@ref).
+
 """
-function genpointings(timerange_s, dir, polangle;
-    spinsunang = deg2rad(45.0),
-    borespinang = deg2rad(50.0),
-    spinrpm = 0.0,
-    precrpm = 0.0,
-    yearlyrpm = 1.0 / (MINUTES_PER_DAY * DAYS_PER_YEAR),
-    hwprpm = 0.0)
-    
-    dirs = Array{Float64}(undef, length(timerange_s), 6)
-
-    genpointings!(timerange_s, dir, polangle, dirs;
-                  spinsunang = spinsunang,
-                  borespinang = borespinang,
-                  spinrpm = spinrpm,
-                  precrpm = precrpm,
-                  yearlyrpm = yearlyrpm,
-                  hwprpm = hwprpm)
-
-    dirs
-end
+genpointings!, genpointings
