@@ -1,6 +1,7 @@
 ```@meta
 DocTestSetup = quote
     using CMBMissionSim
+    const CMBSim = CMBMissionSim
 end
 ```
 
@@ -24,7 +25,7 @@ using the following commands:
 
 ```julia
 import CMBMissionSim
-const CMBSim = CMBSim
+const CMBSim = CMBMissionSim
 ```
 
 ## Documentation
